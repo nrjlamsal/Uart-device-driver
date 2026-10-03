@@ -15,12 +15,29 @@
 #define UART2_CONF0_REG         (UART2_BASE + 0x20)   // Frame format config
 #define UART2_CONF1_REG         (UART2_BASE + 0x24)   // RX timeout config
 
+
+
+
+// UART2_INT_ENA_REG bit fields
+#define UART_RXFIFO_FULL_INT   (1 << 0)
+#define UART_FRM_ERR_INT       (1 << 3)
+#define UART_RXFIFO_OVF_INT    (1 << 4)
+#define UART_RXFIFO_TOUT_INT   (1 << 8)
+
+
 /* 
    UART_CONF0_REG Bit Definitions
     */
+#define UART_BIT_NUM_5          (0 << 2)    // 5 data bits
+#define UART_BIT_NUM_6          (1 << 2)    // 6 data bits
+#define UART_BIT_NUM_7          (2 << 2)    // 7 data bits
 #define UART_BIT_NUM_8          (3 << 2)    // 8 data bits
+
 #define UART_STOP_BIT_NUM_1     (1 << 4)    // 1 stop bit
-#define UART_PARITY_EN           0    // disable parity
+#define UART_STOP_BIT_NUM_2     (3 << 4)    // 2 stop bits
+
+#define UART_PARITY_EN          (1 << 1)    // Parity Enable bit
+#define UART_PARITY             (1 << 0)    // Parity type (0=even, 1=odd)
 #define UART_TICK_REF_ALWAYS_ON (1 << 27)   // Use APB clock (80 MHz)
 
 
@@ -28,7 +45,7 @@
    UART_CONF1_REG Bit Definitions
     */
 #define UART_RX_TOUT_EN         (1 << 31)   // Enable receive timeout
-#define UART_RX_TOUT_THRHD      (0x7F << 24) // Timeout threshold mask
+// #define UART_RX_TOUT_THRHD      (0x7F << 24) // Timeout threshold mask
 
 /* 
    UART_STATUS_REG Bit Definitions
@@ -49,14 +66,14 @@
 #define IO_MUX_GPIO17_REG       (IO_MUX_BASE + 0x50)  // GPIO17 (TX)
 
 /* IO_MUX Bit Definitions */
-#define MCU_SEL_MASK            (0x7)        // Bits [2:0]
-#define MCU_SEL_GPIO            (2)          // GPIO function
+#define MCU_SEL_MASK            (0x7 << 12)        // Bits [2:0]
+#define MCU_SEL_GPIO            (2 <<12)          // GPIO function
 #define FUN_IE                  (1 << 9)     // Input enable
 
 /* Clock & Reset (DPORT) Registers */
 #define DPORT_BASE              0x3FF00000
-#define DPORT_PERI_CLK_EN_REG   (DPORT_BASE + 0x1C)  // Clock enable
-#define DPORT_PERI_RST_EN_REG   (DPORT_BASE + 0x20)  // Reset control
+#define DPORT_PERIP_CLK_EN_REG   (DPORT_BASE + 0x0C0)  // Clock enable
+#define DPORT_PERIP_RST_EN_REG   (DPORT_BASE + 0x0C4)  // Reset control
 
 
 /* UART2-specific bits */
@@ -65,13 +82,15 @@
 #define DPORT_UART_MEM_CLK_EN         (1 << 25)   // Bit 25: Shared memory clock
 
 
-/* UART2 Signal Indexes (for GPIO Matrix) */
-#define U2TXD_OUT_IDX           4           // UART2 TX signal index
-#define U2RXD_IN_IDX            4           // UART2 RX signal index
+/* UART2 Signal Indexes (for GPIO Matrix)              */
+/* Source: ESP32 TRM GPIO Matrix table, row 198        */
+/* U2TXD_out = output index 198, U2RXD_in = input index 198 */
+#define U2TXD_OUT_IDX           198         // U2TXD_out — write to GPIO_FUNC_OUT_SEL
+#define U2RXD_IN_IDX            198         // U2RXD_in  — write to GPIO_FUNC_IN_SEL + (198*4)
 
 /* Register Read/Write Macros */
-#define REG_READ(addr)          (*(volatile uint32_t *)(addr))
-#define REG_WRITE(addr, val)    (*(volatile uint32_t *)(addr) = (val))
+#define REG_READ(addr)          (*(volatile uint32_t *)(uintptr_t)(addr))
+#define REG_WRITE(addr, val)    (*(volatile uint32_t *)(uintptr_t)(addr) = (val))
 #define REG_SET_BIT(addr, bit)  (REG_WRITE((addr), REG_READ(addr) | (bit)))
 #define REG_CLR_BIT(addr, bit)  (REG_WRITE((addr), REG_READ(addr) & ~(bit)))
 
@@ -84,13 +103,14 @@ typedef struct {
     uint8_t  parity;         // 0=None, 1=Odd, 2=Even
 } uart2_config_t;
 
-/* API Function Declarations */
-void uart2_init(const uart2_config_t *config);
-void uart2_send_byte(uint8_t data);
-void uart2_send_string(const char *str);
-int  uart2_receive_byte(uint8_t *data);
-int  uart2_data_available(void);
-void uart2_flush_rx(void);
-int  uart2_timeout_occurred(void);  // Check if timeout happened
+/*  Function Declarations */
+void uart2_init(const uart2_config_t *config);//done
+void uart2_send_byte(uint8_t data);//done
+int  uart2_try_send_byte(uint8_t data);//done
+void uart2_send_string(const char *str);//done
+int  uart2_receive_byte(uint8_t *data);//done
+int  uart2_data_available(void);//done
+void uart2_flush_rx(void);//done
+int  uart2_timeout_occurred(void);  // not done// Check if timeout happened
 
 #endif 

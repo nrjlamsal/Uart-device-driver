@@ -1,4 +1,7 @@
-#include <uart.h>
+#include "uart.h"
+#include "stddef.h"
+// #include "stdio.h" for NULL
+
 
 static void uart2_config_tx_pin(void) {
     int gpio_pin = 17;
@@ -11,7 +14,7 @@ static void uart2_config_tx_pin(void) {
     // 2. connect tx index(peripheral) to the pin 17
     
     uint32_t out_sel_addr = GPIO_FUNC_OUT_SEL_BASE + (gpio_pin * 4);
-    REG_WRITE(out_sel_addr, U2TXD_OUT_IDX);  // 4
+    REG_WRITE(out_sel_addr, U2TXD_OUT_IDX);  // 198
 
     // 3. Enable output driver (master power switch for output)
     //    GPIO_ENABLE_REG bit 17 = 1
@@ -30,7 +33,7 @@ static void uart2_config_rx_pin(void) {
     io_mux_val |= FUN_IE;
     REG_WRITE(IO_MUX_GPIO16_REG, io_mux_val);
 
-    // 2. GPIO Matrix: Route GPIO16 to UART2 RX signal (index 4)
+    // 2. GPIO Matrix: Route GPIO16 to UART2 RX signal (index 198)
     //    Write pin number 16 to GPIO_FUNC4_IN_SEL_CFG_REG
     uint32_t in_sel_addr = GPIO_FUNC_IN_SEL_BASE + (U2RXD_IN_IDX * 4);
     REG_WRITE(in_sel_addr, gpio_pin);          // Write pin number 16
@@ -40,3 +43,112 @@ static void uart2_config_rx_pin(void) {
     //    GPIO_ENABLE_REG bit 16 = 0
     REG_CLR_BIT(GPIO_ENABLE_REG, (1 << gpio_pin));
 }
+
+void uart2_flush_rx(void) {
+    while (REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK)
+        (void)REG_READ(UART2_FIFO_REG);   // each read pops one byte
+}
+
+void uart2_init(const uart2_config_t *config) {
+
+     // Step 1: Assert reset — wipes all internal flip-flops to 0
+     REG_SET_BIT(DPORT_PERIP_RST_EN_REG, DPORT_UART2_RST_EN);
+
+     // Step 2: Enable clocks — APB clock now feeds the (reset) peripheral
+     REG_SET_BIT(DPORT_PERIP_CLK_EN_REG, DPORT_UART_MEM_CLK_EN); // shared FIFO memory clock
+     REG_SET_BIT(DPORT_PERIP_CLK_EN_REG, DPORT_UART2_CLK_EN);     // UART2 module clock
+
+     // Step 3: Release reset — peripheral starts cleanly from known zero state
+     REG_CLR_BIT(DPORT_PERIP_RST_EN_REG, DPORT_UART2_RST_EN);
+
+     uart2_config_tx_pin();
+     uart2_config_rx_pin();
+
+      uint32_t clk_div = 80000000 / config->baud_rate;
+      REG_WRITE(UART2_CLKDIV_REG, clk_div);
+
+      uint32_t conf0 = 0;
+      conf0 |= UART_TICK_REF_ALWAYS_ON;
+
+      switch (config->data_bits) {
+        case 5:  conf0 |= UART_BIT_NUM_5; break;
+        case 6:  conf0 |= UART_BIT_NUM_6; break;
+        case 7:  conf0 |= UART_BIT_NUM_7; break;
+        case 8:
+        default: conf0 |= UART_BIT_NUM_8; break;
+    }
+
+    if (config->stop_bits == 2) {
+        conf0 |= UART_STOP_BIT_NUM_2;
+    } else {
+        conf0 |= UART_STOP_BIT_NUM_1;  
+    }
+
+    if (config->parity == 1) {
+        conf0 |= UART_PARITY_EN;        // Enable parity
+        conf0 |= UART_PARITY;          // Odd parity
+    } else if (config->parity == 2) {
+        conf0 |= UART_PARITY_EN;        // Enable parit and Even parity menas it stays 0
+    } else {
+        conf0 &= ~UART_PARITY_EN;       // diable parity bit
+    }
+
+        REG_WRITE(UART2_CONF0_REG, conf0);
+
+
+        uint32_t conf1 = 0;
+        conf1 |= (1 << 31); // enable timeout interrupt
+        conf1 |= (10 << 24); // threshold for timeout interrupt
+        conf1 |= (32 << 0 );//  threshold for rxfifo interrupt
+
+        REG_WRITE(UART2_CONF1_REG, conf1);
+
+        uart2_flush_rx();
+
+        REG_WRITE(UART2_INT_CLR_REG, 0xFFFFFFFF);
+        REG_WRITE(UART2_INT_ENA_REG,UART_RXFIFO_FULL_INT|UART_FRM_ERR_INT |UART_RXFIFO_OVF_INT |UART_RXFIFO_TOUT_INT);
+}
+
+void uart2_send_byte(uint8_t data) {
+    // wait until the TX FIFO has space (it holds 128 bytes)
+    while (((REG_READ(UART2_STATUS_REG) & UART_TXFIFO_CNT_MASK) >> 16) >= 128) {
+        // wait
+    }
+    REG_WRITE(UART2_FIFO_REG, data);   // writing here pushes the byte into the TX FIFO
+}
+
+int uart2_try_send_byte(uint8_t data) {
+    uint32_t cnt = (REG_READ(UART2_STATUS_REG) & UART_TXFIFO_CNT_MASK) >> 16;
+    if (cnt >= 128) {
+        return 0;                       // full, byte NOT sent
+    }
+    REG_WRITE(UART2_FIFO_REG, data);    // pushed into TX FIFO
+    return 1;                           // byte sent
+}
+
+int uart2_receive_byte(uint8_t *data) {
+    // nothing waiting? return 0
+    if ((REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK) == 0) {
+        return 0;
+    }
+    *data = (uint8_t)(REG_READ(UART2_FIFO_REG) & 0xFF);   // this read pops the byte
+    return 1;
+}
+
+int uart2_data_available(void) {
+    // number of bytes waiting in the RX FIFO (0 means none)
+    return (int)(REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK);
+}
+
+
+void uart2_send_string(const char *str){
+   if(str == NULL){
+    return;
+   }
+
+    while(*str!='\0'){
+     uart2_send_byte(*str);
+     str++;
+    }
+}
+
