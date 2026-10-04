@@ -8,8 +8,10 @@
     */
 #define UART2_BASE              0x3FF6E000
 #define UART2_FIFO_REG          (UART2_BASE + 0x00)   // Data register
-#define UART2_INT_ENA_REG       (UART2_BASE + 0x0C)   // Interrupt enable (not used in polling)
-#define UART2_INT_CLR_REG       (UART2_BASE + 0x10)   // Interrupt clear (not used in polling)
+#define UART2_INT_ENA_REG       (UART2_BASE + 0x0C)   // Interrupt enable
+#define UART2_INT_RAW_REG       (UART2_BASE + 0x04)   //  hardware sets bit automatically when event occured
+#define UART2_INT_ST_REG        (UART2_BASE + 0x08)   // and of RAW and ENA -check to see which ISR is needed
+#define UART2_INT_CLR_REG       (UART2_BASE + 0x10)   // Interrupt clear 
 #define UART2_CLKDIV_REG        (UART2_BASE + 0x14)   // Baud rate divider
 #define UART2_STATUS_REG        (UART2_BASE + 0x1C)   // FIFO status
 #define UART2_CONF0_REG         (UART2_BASE + 0x20)   // Frame format config
@@ -112,5 +114,7 @@ int  uart2_receive_byte(uint8_t *data);//done
 int  uart2_data_available(void);//done
 void uart2_flush_rx(void);//done
 int  uart2_timeout_occurred(void);  // not done// Check if timeout happened
+void uart2_isr_handler(void);
+int  uart2_read_byte(uint8_t *data);
 
 #endif 

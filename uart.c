@@ -135,10 +135,10 @@ int uart2_receive_byte(uint8_t *data) {
     return 1;
 }
 
-int uart2_data_available(void) {
-    // number of bytes waiting in the RX FIFO (0 means none)
-    return (int)(REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK);
-}
+// int uart2_data_available(void) {
+//     // number of bytes waiting in the RX FIFO (0 means none)
+//     return (int)(REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK);
+// }
 
 
 void uart2_send_string(const char *str){
@@ -152,3 +152,77 @@ void uart2_send_string(const char *str){
     }
 }
 
+
+int uart2_timeout_occurred(void) {
+    if (REG_READ(UART2_INT_RAW_REG) & UART_RXFIFO_TOUT_INT) {
+        REG_WRITE(UART2_INT_CLR_REG, UART_RXFIFO_TOUT_INT);   // writing 1 to INT-CLR clears the the RX-FIFO_TOUT interrupt
+        return 1;
+    }
+    return 0;
+}
+
+#define RX_BUF_SIZE 256
+
+static uint8_t           rx_buf[RX_BUF_SIZE];
+static volatile uint16_t rx_head = 0;            // ISR writes here
+static volatile uint16_t rx_tail = 0;            // main reads here
+static volatile uint32_t rx_overflow_count = 0;  // bytes dropped because buffer was full
+
+// Store one byte. Returns 1 if stored, 0 if the buffer was full.
+static int rb_put(uint8_t byte) {
+    uint16_t next = (rx_head + 1) % RX_BUF_SIZE;
+    if (next == rx_tail) {            // full  (head +1)%size == tail
+        rx_overflow_count++;
+        return 0;
+    }
+    rx_buf[rx_head] = byte;           // write the byte first...
+    rx_head = next;                   // ...then advance head
+    return 1;
+}
+
+// Take one byte. Returns 1 if got a byte, 0 if the buffer was empty.
+static int rb_get(uint8_t *byte) {
+    if (rx_head == rx_tail) {         // empty
+        return 0;
+    }
+    *byte = rx_buf[rx_tail];          // copy the byte out first...
+    rx_tail = (rx_tail + 1) % RX_BUF_SIZE;   // ...then advance tail
+    return 1;
+}
+
+// Number of bytes waiting in the buffer.
+static uint16_t rb_count(void) {
+    return (uint16_t)((rx_head - rx_tail + RX_BUF_SIZE) % RX_BUF_SIZE);
+}
+
+int uart2_data_available(void) {
+    return (int)rb_count();
+}
+
+static volatile uint32_t uart_frm_err_count = 0;     // framing errors seen
+static volatile uint32_t uart_hw_ovf_count  = 0;     // RX FIFO overflows (bytes lost in hardware)
+
+void uart2_isr_handler(void) {
+    uint32_t st = REG_READ(UART2_INT_ST_REG);        // read once, at the start
+
+    if (st & (UART_RXFIFO_FULL_INT | UART_RXFIFO_TOUT_INT)) {
+        while (REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK) {
+            uint8_t b = (uint8_t)(REG_READ(UART2_FIFO_REG) & 0xFF);
+            rb_put(b);                                // if full, the byte is dropped and counted
+        }
+    }
+
+    if (st & UART_RXFIFO_OVF_INT) {
+        uart_hw_ovf_count++;
+    }
+
+    if (st & UART_FRM_ERR_INT) {
+        uart_frm_err_count++;
+    }
+
+    REG_WRITE(UART2_INT_CLR_REG, st);                 // clear only what we saw
+}
+
+int uart2_read_byte(uint8_t *data) {
+    return rb_get(data);
+}
