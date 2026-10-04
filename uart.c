@@ -1,5 +1,5 @@
 #include "uart.h"
-#include "stddef.h"
+#include <stddef.h>
 // #include "stdio.h" for NULL
 
 
@@ -34,10 +34,10 @@ static void uart2_config_rx_pin(void) {
     REG_WRITE(IO_MUX_GPIO16_REG, io_mux_val);
 
     // 2. GPIO Matrix: Route GPIO16 to UART2 RX signal (index 198)
-    //    Write pin number 16 to GPIO_FUNC4_IN_SEL_CFG_REG
+    //    Write pin number 16 to GPIO_FUNC198_IN_SEL_CFG_REG
     uint32_t in_sel_addr = GPIO_FUNC_IN_SEL_BASE + (U2RXD_IN_IDX * 4);
     REG_WRITE(in_sel_addr, gpio_pin);          // Write pin number 16
-    REG_SET_BIT(in_sel_addr, (1 << 7));        // GPIO_SIG4_IN_SEL = 1 (enable matrix)
+    REG_SET_BIT(in_sel_addr, (1 << 7));        // 
 
       // 3. Disable output driver (make it an input)
     //    GPIO_ENABLE_REG bit 16 = 0
@@ -126,7 +126,7 @@ int uart2_try_send_byte(uint8_t data) {
     return 1;                           // byte sent
 }
 
-int uart2_receive_byte(uint8_t *data) {
+int uart2_poll_receive_byte(uint8_t *data) {
     // nothing waiting? return 0
     if ((REG_READ(UART2_STATUS_REG) & UART_RXFIFO_CNT_MASK) == 0) {
         return 0;
@@ -152,14 +152,6 @@ void uart2_send_string(const char *str){
     }
 }
 
-
-int uart2_timeout_occurred(void) {
-    if (REG_READ(UART2_INT_RAW_REG) & UART_RXFIFO_TOUT_INT) {
-        REG_WRITE(UART2_INT_CLR_REG, UART_RXFIFO_TOUT_INT);   // writing 1 to INT-CLR clears the the RX-FIFO_TOUT interrupt
-        return 1;
-    }
-    return 0;
-}
 
 #define RX_BUF_SIZE 256
 

@@ -105,16 +105,24 @@ typedef struct {
     uint8_t  parity;         // 0=None, 1=Odd, 2=Even
 } uart2_config_t;
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*  Function Declarations */
 void uart2_init(const uart2_config_t *config);//done
 void uart2_send_byte(uint8_t data);//done
 int  uart2_try_send_byte(uint8_t data);//done
 void uart2_send_string(const char *str);//done
-int  uart2_receive_byte(uint8_t *data);//done
+int  uart2_poll_receive_byte(uint8_t *data);//done
 int  uart2_data_available(void);//done
 void uart2_flush_rx(void);//done
-int  uart2_timeout_occurred(void);  // not done// Check if timeout happened
 void uart2_isr_handler(void);
 int  uart2_read_byte(uint8_t *data);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif 
